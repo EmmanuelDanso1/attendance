@@ -7,9 +7,15 @@
 <meta http-equiv="X-Frame-Options" content="DENY">
 <meta name="referrer" content="no-referrer">
 <title>Softmasters — Admin Panel</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// Employee check-in portal (opened from the QR code): /checkin, or the older #checkin link.
+// Flagged before anything renders so the admin login never flashes on employees' phones.
+window._isQRSession = /\/checkin\/?$/.test(location.pathname) || location.hash === '#checkin';
+if (window._isQRSession) document.documentElement.classList.add('portal');
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -208,6 +214,12 @@ tbody tr:hover td{background:#fafbfd}
 .ci-head h1{font-size:1rem;font-weight:700;letter-spacing:-0.01em}
 .ci-head p{font-size:0.8rem;color:var(--mut);margin-top:2px}
 .portal .ci-head{display:block}
+/* Portal layout is applied by CSS up front, before any script runs */
+html.portal #login-screen,html.portal .sidebar,html.portal .sb-overlay,html.portal #main-topbar{display:none!important}
+html.portal #app{display:flex}
+html.portal .main-area{margin-left:0}
+html.portal .page{display:none}
+html.portal #page-checkin{display:flex}
 .fg{margin-bottom:1.1rem}
 .fl{display:block;font-size:0.8rem;font-weight:600;color:var(--txt-2);margin-bottom:0.4rem}
 .fh{font-size:0.74rem;color:var(--mut);margin-top:0.35rem}
@@ -770,11 +782,13 @@ select.set-inp{appearance:none;-webkit-appearance:none;background:#fff url("data
 const BASE_URL = '/api';
 const HEADERS  = {'Content-Type':'application/json'};
 
-if(window.Chart){
+// Libraries load with "defer", so they are ready by DOMContentLoaded
+document.addEventListener('DOMContentLoaded',()=>{
+  if(!window.Chart) return;
   Chart.defaults.font.family="'Inter',system-ui,sans-serif";
   Chart.defaults.font.size=11;
   Chart.defaults.color='#64748b';
-}
+});
 
 // ── SHA-256 HASH UTILITY ──────────────────────────────────────────
 async function sha256(str){
@@ -835,7 +849,8 @@ function clearSession(){
 document.addEventListener('click',extendSession,{passive:true});
 document.addEventListener('keydown',extendSession,{passive:true});
 // Check session every 60s and auto-logout if expired
-setInterval(()=>{ if(!sessionValid() && document.getElementById('app').classList.contains('visible')){ showToast('Session expired. Please log in again.','warn'); setTimeout(doLogout,1500); }},60000);
+// (The employee check-in portal has no admin session, so it is exempt.)
+setInterval(()=>{ if(!window._isQRSession && !sessionValid() && document.getElementById('app').classList.contains('visible')){ showToast('Session expired. Please log in again.','warn'); setTimeout(doLogout,1500); }},60000);
 
 // ── DEVTOOLS / DOM MANIPULATION GUARD ────────────────────────────
 // If someone manually adds 'visible' to #app via DevTools without a valid
@@ -844,6 +859,8 @@ setInterval(()=>{ if(!sessionValid() && document.getElementById('app').classList
   const appEl=document.getElementById('app');
   if(!appEl) return;
   const obs=new MutationObserver(()=>{
+    // The employee check-in portal is meant to be used without logging in
+    if(window._isQRSession) return;
     if(appEl.classList.contains('visible')&&!sessionValid()){
       appEl.classList.remove('visible');
       document.getElementById('login-screen').style.display='flex';
@@ -1054,7 +1071,8 @@ function tickQR(){
 function generateQR(){
   const box=document.getElementById('qr-box'); if(!box) return;
   box.innerHTML='';
-  const url=window.location.href.split('#')[0]+'#checkin';
+  // Plain path (not #checkin): some QR scanner apps drop everything after '#'
+  const url=location.origin+location.pathname.replace(/[^/]*$/,'')+'checkin';
   const nm=document.getElementById('qr-url-sm'); if(nm) nm.textContent=url;
   new QRCode(box,{text:url,width:200,height:200,colorDark:'#0f172a',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   qrGenerated=true;
@@ -1955,19 +1973,13 @@ function captureAdminLocation(){
   },()=>showToast('Could not get location. Check permissions.','error'),{enableHighAccuracy:true,timeout:10000,maximumAge:0});
 }
 
-// QR hash deep link - opens check-in page without requiring login
-window.addEventListener('load',()=>{
-  const h=window.location.hash.replace('#','');
-  if(h==='checkin'){
-    window._isQRSession=true;
-    document.body.classList.add('portal');
-    document.getElementById('login-screen').style.display='none';
-    const app=document.getElementById('app');app.classList.add('visible');
-    // Hide admin-only UI for employee-facing portal
-    const sidebar=document.querySelector('.sidebar'); if(sidebar) sidebar.style.display='none';
-    const mainArea=document.querySelector('.main-area'); if(mainArea) mainArea.style.marginLeft='0';
-    const topbar=document.getElementById('main-topbar'); if(topbar) topbar.style.display='none';
-    initApp(); showPage('checkin'); startGpsCheck();
+// QR deep link (/checkin or #checkin) - opens the check-in page without requiring login.
+// Runs on DOMContentLoaded (not 'load') so it doesn't wait for fonts and images.
+window.addEventListener('hashchange',()=>{ if(location.hash==='#checkin' && !window._isQRSession) location.reload(); });
+document.addEventListener('DOMContentLoaded',()=>{
+  if(window._isQRSession){
+    document.getElementById('app').classList.add('visible');
+    initApp(); showPage('checkin');
     // If this device already submitted in this session, show a blocking message
     if(sessionStorage.getItem('sm_submitted')==='1'){
       document.getElementById('ci-form-state').style.display='none';
