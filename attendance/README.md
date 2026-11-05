@@ -70,21 +70,39 @@ npm start
 
 Open your browser at **http://localhost:3000**
 
-Default login: `admin` / `admin123`
+Default login: `admin` / `admin123` — change it under **Settings → Admin credentials**.
+To choose the first password yourself, set `ADMIN_USER` / `ADMIN_PASSWORD` in `.env`
+before the server's first start (they are only used to create the account).
+
+**Forgot the admin password?** Delete the stored account and restart the server;
+it is re-created from `.env` (or the defaults):
+```sql
+DELETE FROM settings WHERE key = 'admin';
+```
 
 ---
 
 ## API Endpoints
 
+🔒 = admin only: requires `Authorization: Bearer <token>` from `/api/auth/login`.
+
 | Method | Path | Description |
 |--------|------|-------------|
-| GET    | `/api/records` | Fetch all attendance records |
-| POST   | `/api/records` | Add a single check-in/out record |
-| DELETE | `/api/records/:id` | Delete a record by ID |
-| POST   | `/api/records/replace` | Bulk-replace all records (Clear All) |
-| GET    | `/api/employees` | Fetch all registered employees |
-| POST   | `/api/employees` | Register a new employee |
-| DELETE | `/api/employees/:id` | Remove an employee |
+| POST   | `/api/auth/login` | Admin login → session token (5 wrong tries = 5-min lockout) |
+| POST   | `/api/auth/logout` | End the admin session |
+| GET    | `/api/auth/me` 🔒 | Check the session is still valid |
+| PUT    | `/api/auth/credentials` 🔒 | Change admin username/password (needs current password) |
+| GET    | `/api/records` 🔒 | Fetch all attendance records |
+| POST   | `/api/records` | Employee check-in/out — verifies name + PIN, GPS and day rules |
+| GET    | `/api/checkin/status` | Whether `?name=` has checked in/out on `?date=` |
+| DELETE | `/api/records/:id` 🔒 | Delete a record by ID |
+| POST   | `/api/records/replace` 🔒 | Bulk-replace all records (Clear All) |
+| GET    | `/api/employees` 🔒 | Fetch all registered employees |
+| POST   | `/api/employees` 🔒 | Register a new employee |
+| PUT    | `/api/employees/:id` 🔒 | Edit an employee (a rename also moves their records) |
+| DELETE | `/api/employees/:id` 🔒 | Remove an employee |
+| GET    | `/api/settings/gps` | Office location and radius |
+| POST   | `/api/settings/gps` 🔒 | Save office location and radius |
 
 ---
 
@@ -103,16 +121,16 @@ Use the Supabase connection string (with `?sslmode=require`) as `DATABASE_URL`.
 
 ## Features
 
-- ✅ Employee check-in / check-out with PIN validation
-- ✅ GPS geofence enforcement
+- ✅ Employee check-in / check-out with server-side PIN validation (5 wrong PINs = 5-min lockout)
+- ✅ GPS geofence enforcement (checked on the server)
 - ✅ QR code station for employee self-service
 - ✅ Real-time dashboard (auto-refreshes every 30 s)
 - ✅ Late / Early Departure / Overstay detection
 - ✅ Employee registry with photo upload
 - ✅ Export to CSV & Excel (daily, weekly, monthly, headcount, summary)
-- ✅ Admin credentials with SHA-256 hashed passwords
-- ✅ Session management (8-hour timeout)
-- ✅ Brute-force login protection
+- ✅ Server-side admin login (scrypt-hashed password stored in the database)
+- ✅ Session tokens required for every admin API call (8-hour idle timeout)
+- ✅ Brute-force login protection on the server
 
 ---
 

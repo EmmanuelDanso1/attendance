@@ -12,6 +12,8 @@
 // Flagged before anything renders so the admin login never flashes on employees' phones.
 window._isQRSession = /\/checkin\/?$/.test(location.pathname) || location.hash === '#checkin';
 if (window._isQRSession) document.documentElement.classList.add('portal');
+// An admin tab being refreshed: keep the login form hidden while the server confirms the session
+else if (sessionStorage.getItem('sm_tok')) document.documentElement.classList.add('resuming');
 </script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -200,6 +202,8 @@ tbody tr:hover td{background:#fafbfd}
 .b-gray{background:var(--sub);color:var(--mut);border-color:var(--bdr)}
 .del-btn{background:none;border:1px solid transparent;color:var(--mut-2);cursor:pointer;width:28px;height:28px;border-radius:var(--r-xs);transition:all .15s;font-size:1.05rem;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .del-btn:hover{color:var(--red);background:var(--red-bg);border-color:#fecaca}
+.edit-btn:hover{color:var(--pri);background:var(--pri-l);border-color:#bfdbfe}
+.row-acts{display:inline-flex;gap:0.25rem}
 .mini-btn{font-size:0.72rem;font-weight:500;border:1px solid var(--bdr-2);background:#fff;border-radius:var(--r-xs);padding:0.18rem 0.5rem;cursor:pointer;color:var(--txt-2);margin-left:0.25rem;transition:background .15s}
 .mini-btn:hover{background:var(--sub)}
 .id-tag{font-family:ui-monospace,'SFMono-Regular',Consolas,monospace;font-size:0.8rem;font-weight:600;color:var(--pri);background:var(--pri-l);border:1px solid #dbeafe;padding:0.15rem 0.5rem;border-radius:var(--r-xs);letter-spacing:0.04em}
@@ -217,6 +221,7 @@ tbody tr:hover td{background:#fafbfd}
 /* Portal layout is applied by CSS up front, before any script runs */
 html.portal #login-screen,html.portal .sidebar,html.portal .sb-overlay,html.portal #main-topbar{display:none!important}
 html.portal #app{display:flex}
+html.resuming #login-screen{visibility:hidden}
 html.portal .main-area{margin-left:0}
 html.portal .page{display:none}
 html.portal #page-checkin{display:flex}
@@ -384,6 +389,8 @@ select.set-inp{appearance:none;-webkit-appearance:none;background:#fff url("data
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></symbol>
   <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
   <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
@@ -679,7 +686,8 @@ select.set-inp{appearance:none;-webkit-appearance:none;background:#fff url("data
           <h3><span class="rep-ico ico-pur"><svg class="i i-sm"><use href="#i-lock"/></svg></span> Admin credentials</h3>
           <div class="set-body">
             <div class="set-row"><div><div class="set-lbl">Username</div></div><input class="set-inp" id="set-user" type="text" /></div>
-            <div class="set-row"><div><div class="set-lbl">New password</div><div class="set-sub">Leave blank to keep current</div></div><input class="set-inp" id="set-pass" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" /></div>
+            <div class="set-row"><div><div class="set-lbl">New password</div><div class="set-sub">Leave blank to keep current (min. 6 characters)</div></div><input class="set-inp" id="set-pass" type="password" autocomplete="new-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" /></div>
+            <div class="set-row"><div><div class="set-lbl">Current password</div><div class="set-sub">Required to save any change here</div></div><input class="set-inp" id="set-cur-pass" type="password" autocomplete="current-password" /></div>
             <div class="set-actions"><button class="btn btn-pri btn-sm" onclick="saveCredentials()">Update credentials</button></div>
           </div>
         </div>
@@ -731,8 +739,8 @@ select.set-inp{appearance:none;-webkit-appearance:none;background:#fff url("data
 <!-- ADD EMPLOYEE MODAL -->
 <div class="modal-bg" id="emp-modal">
   <div class="modal" style="max-width:460px;overflow-y:auto;max-height:92vh">
-    <h3>Register new employee</h3>
-    <p style="margin-bottom:1.1rem">An access PIN is generated automatically.</p>
+    <h3 id="emp-modal-title">Register new employee</h3>
+    <p style="margin-bottom:1.1rem" id="emp-modal-sub">An access PIN is generated automatically.</p>
 
     <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:1.1rem">
       <div id="photo-preview" class="photo-pick" onclick="document.getElementById('emp-photo-input').click()">
@@ -740,7 +748,10 @@ select.set-inp{appearance:none;-webkit-appearance:none;background:#fff url("data
         <img id="photo-img" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0" />
       </div>
       <input type="file" id="emp-photo-input" accept="image/*" style="display:none" onchange="previewPhoto(this)" />
-      <button class="link-btn" onclick="document.getElementById('emp-photo-input').click()">Upload photo</button>
+      <div style="display:flex;gap:1rem">
+        <button class="link-btn" onclick="document.getElementById('emp-photo-input').click()">Upload photo</button>
+        <button class="link-btn" id="photo-remove" style="color:var(--red);display:none" onclick="removePhoto()">Remove photo</button>
+      </div>
     </div>
 
     <div class="fg">
@@ -753,14 +764,15 @@ select.set-inp{appearance:none;-webkit-appearance:none;background:#fff url("data
     </div>
 
     <div class="gen-box" style="background:var(--sub);border-color:var(--bdr);margin-bottom:1.25rem">
-      <div class="gen-lbl">Access PIN (auto-generated)</div>
+      <div class="gen-lbl" id="pin-lbl">Access PIN (auto-generated)</div>
       <div id="new-emp-pin" class="gen-val" style="color:var(--txt)">——</div>
-      <button class="link-btn" style="margin-top:0.3rem;padding:0" onclick="regeneratePin()"><svg class="i i-sm"><use href="#i-refresh"/></svg> Regenerate PIN</button>
+      <div class="fh" id="pin-hint" style="display:none"></div>
+      <button class="link-btn" style="margin-top:0.3rem;padding:0" onclick="regeneratePin()"><svg class="i i-sm"><use href="#i-refresh"/></svg> <span id="pin-btn-txt">Regenerate PIN</span></button>
     </div>
 
     <div class="modal-btns">
       <button class="btn btn-ghost" onclick="closeEmpModal()">Cancel</button>
-      <button class="btn btn-pri" onclick="saveNewEmployee()">Save employee</button>
+      <button class="btn btn-pri" id="emp-save-btn" onclick="saveNewEmployee()">Save employee</button>
     </div>
   </div>
 </div>
@@ -796,43 +808,27 @@ async function sha256(str){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-// ── BRUTE-FORCE PROTECTION ────────────────────────────────────────
-const MAX_ATTEMPTS=5, LOCKOUT_MS=5*60*1000; // 5 attempts then 5-min lockout
-let loginAttempts=parseInt(sessionStorage.getItem('sm_att')||'0');
-let lockoutUntil=parseInt(sessionStorage.getItem('sm_lock')||'0');
-
-function isLockedOut(){
-  if(Date.now()<lockoutUntil) return true;
-  if(lockoutUntil && Date.now()>=lockoutUntil){
-    // Lockout expired — reset
-    loginAttempts=0; lockoutUntil=0;
-    sessionStorage.removeItem('sm_att'); sessionStorage.removeItem('sm_lock');
-  }
-  return false;
-}
-function recordFailedAttempt(){
-  loginAttempts++;
-  sessionStorage.setItem('sm_att',loginAttempts);
-  if(loginAttempts>=MAX_ATTEMPTS){
-    lockoutUntil=Date.now()+LOCKOUT_MS;
-    sessionStorage.setItem('sm_lock',lockoutUntil);
-  }
-}
-function resetLoginAttempts(){
-  loginAttempts=0; lockoutUntil=0;
-  sessionStorage.removeItem('sm_att'); sessionStorage.removeItem('sm_lock');
-}
-
-// ── SESSION TOKEN ─────────────────────────────────────────────────
-// A random token is created on login and checked before any admin action.
-// Closing the tab destroys it (sessionStorage). Timeout = 8 hours.
+// ── ADMIN SESSION ─────────────────────────────────────────────────
+// The server checks the admin password and issues a session token that is
+// sent with every admin API call. Closing the tab forgets it (sessionStorage);
+// the server also expires it after 8 idle hours. Wrong-password lockouts
+// are enforced by the server.
 const SESSION_TIMEOUT=8*60*60*1000;
-function createSession(user){
-  const token=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Date.now().toString(36);
+function createSession(user,token){
   sessionStorage.setItem('sm_tok',token);
   sessionStorage.setItem('sm_tok_user',user);
   sessionStorage.setItem('sm_tok_exp',Date.now()+SESSION_TIMEOUT);
-  return token;
+}
+function authHeaders(){
+  const t=sessionStorage.getItem('sm_tok');
+  return t?{...HEADERS,Authorization:'Bearer '+t}:HEADERS;
+}
+// The server rejected the admin session (expired, or server restarted)
+let sessionRejected=false;
+function onSessionRejected(){
+  if(window._isQRSession||!document.getElementById('app').classList.contains('visible')) return;
+  if(!sessionRejected){ sessionRejected=true; showToast('Your session has expired. Please log in again.','warn'); }
+  doLogout();
 }
 function sessionValid(){
   const tok=sessionStorage.getItem('sm_tok');
@@ -871,68 +867,43 @@ setInterval(()=>{ if(!window._isQRSession && !sessionValid() && document.getElem
 let allRecords = [], companyName = localStorage.getItem('sm_company')||'SOFTMASTERS COMPANY LIMITED';
 let lateTime = localStorage.getItem('sm_late')||'08:30', dupMode = localStorage.getItem('sm_dup')||'warn';
 let earlyTime = localStorage.getItem('sm_early')||'17:00', overstayTime = localStorage.getItem('sm_overstay')||'18:30';
-let adminUser = localStorage.getItem('sm_au')||'admin';
-let adminPassHash = localStorage.getItem('sm_aph')||''; // SHA-256 hash
-let currentAction='in', toastTimer, qrGenerated=false, trendChart, pieChart, currentPeriod='daily';
+let adminUser = sessionStorage.getItem('sm_tok_user')||'admin';
+let currentAction='in', toastTimer, qrGenerated=false, trendChart, pieChart, currentPeriod='daily', refreshTimer;
 let employeeRegistry = []; // loaded from PostgreSQL on initApp()
-let pendingPin='', pendingEmpId='', pendingPhotoData='';
+let pendingPin='', pendingEmpId='', pendingPhotoData='', editingEmpId=null;
 // GPS — the lock is always on; the office location comes from the server
 let gpsLat = null, gpsLng = null, gpsRadius = 100;
 let userGpsOk = false, gpsLoad = null, gpsEditing = false;
-
-// Migrate plain-text password to hash on first run
-(async()=>{
-  const plain=localStorage.getItem('sm_ap');
-  if(plain && !adminPassHash){
-    adminPassHash=await sha256(plain);
-    localStorage.setItem('sm_aph',adminPassHash);
-    localStorage.removeItem('sm_ap');
-  } else if(!adminPassHash){
-    // Default password hash for 'admin123'
-    adminPassHash=await sha256('admin123');
-    localStorage.setItem('sm_aph',adminPassHash);
-  }
-})();
 
 // ── AUTH ──────────────────────────────────────────────────────────
 async function doLogin(){
   const errEl=document.getElementById('login-err');
   const u=document.getElementById('login-user').value.trim();
   const p=document.getElementById('login-pass').value;
-
-  // Lockout check
-  if(isLockedOut()){
-    const remaining=Math.ceil((lockoutUntil-Date.now())/60000);
-    errEl.textContent=`Too many failed attempts. Try again in ${remaining} minute${remaining===1?'':'s'}.`;
-    errEl.style.display='block';
-    return;
-  }
-
-  if(!u||!p){
-    errEl.textContent='Please enter both username and password.';
-    errEl.style.display='block';
-    return;
-  }
-
-  const inputHash=await sha256(p);
-  if(u===adminUser && inputHash===adminPassHash){
+  const showErr=m=>{ errEl.textContent=m; errEl.style.display='block'; };
+  if(!u||!p){ showErr('Please enter both username and password.'); return; }
+  const btn=document.querySelector('.login-btn'); btn.disabled=true;
+  try{
+    const r=await apiPost('/auth/login',{username:u,password:p});
     errEl.style.display='none';
-    resetLoginAttempts();
-    createSession(u);
-    document.getElementById('login-screen').style.display='none';
-    document.getElementById('app').classList.add('visible');
-    document.getElementById('admin-nm').textContent=u;
-    document.getElementById('admin-av').textContent=u[0].toUpperCase();
+    sessionRejected=false;
+    adminUser=r.user;
+    createSession(r.user,r.token);
+    // Credentials used to be kept in this browser; the server holds them now
+    ['sm_au','sm_aph','sm_ap'].forEach(k=>localStorage.removeItem(k));
+    showApp(r.user);
     initApp();
-  } else {
-    recordFailedAttempt();
-    const left=MAX_ATTEMPTS-loginAttempts;
-    errEl.textContent=left>0
-      ? `Incorrect credentials. ${left} attempt${left===1?'':'s'} remaining.`
-      : `Account locked for 5 minutes due to too many failed attempts.`;
-    errEl.style.display='block';
+  }catch(e){
+    showErr(e.message);
     document.getElementById('login-pass').value='';
-  }
+  }finally{ btn.disabled=false; }
+}
+function showApp(user){
+  document.documentElement.classList.remove('resuming');
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').classList.add('visible');
+  document.getElementById('admin-nm').textContent=user;
+  document.getElementById('admin-av').textContent=user[0].toUpperCase();
 }
 
 function requireSession(){
@@ -941,7 +912,12 @@ function requireSession(){
 }
 
 function doLogout(){
+  const t=sessionStorage.getItem('sm_tok');
+  if(t) fetch(BASE_URL+'/auth/logout',{method:'POST',headers:{...HEADERS,Authorization:'Bearer '+t}}).catch(()=>{});
   clearSession();
+  clearInterval(refreshTimer);
+  employeeRegistry=[]; allRecords=[];   // don't keep admin data in memory
+  document.documentElement.classList.remove('resuming');
   sessionStorage.removeItem('sm_page');
   document.getElementById('app').classList.remove('visible');
   document.getElementById('login-screen').style.display='flex';
@@ -958,12 +934,18 @@ async function initApp(){
   document.getElementById('set-overstay').value=overstayTime;
   document.getElementById('set-dup').value=dupMode;
   document.getElementById('set-user').value=adminUser;
+  // The employee check-in portal has no admin session: it only needs the
+  // office location. Employee and attendance data are admin-only.
+  const admin=!window._isQRSession;
   // GPS settings (shared via the server)
-  try{ await loadGpsSettings(); await migrateLocalGpsSettings(); }catch(e){ console.warn('GPS settings fetch failed:',e.message); }
+  try{ await loadGpsSettings(); if(admin) await migrateLocalGpsSettings(); }catch(e){ console.warn('GPS settings fetch failed:',e.message); }
   fillGpsInputs();
+  updateClock();
+  if(!admin) return;
   // Load employee registry from server
   try{ employeeRegistry=await fetchRegistry(); }catch(e){ console.warn('Registry fetch failed:',e.message); }
-  updateClock(); tickQR(); loadData(); setInterval(loadData,30000);
+  tickQR(); loadData();
+  clearInterval(refreshTimer); refreshTimer=setInterval(loadData,30000);
   const yndY=document.getElementById('ydn-year'); if(yndY) yndY.textContent=new Date().getFullYear();
   const tbd=document.getElementById('tb-date'); if(tbd) tbd.textContent=new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
 }
@@ -1009,16 +991,19 @@ function saveSettings(){
 async function saveCredentials(){
   if(!requireSession()) return;
   const u=document.getElementById('set-user').value.trim();
+  const cur=document.getElementById('set-cur-pass').value;
   const p=document.getElementById('set-pass').value;
-  if(u){adminUser=u;localStorage.setItem('sm_au',u);}
-  if(p){
-    if(p.length<6){showToast('Password must be at least 6 characters','error');return;}
-    adminPassHash=await sha256(p);
-    localStorage.setItem('sm_aph',adminPassHash);
-    localStorage.removeItem('sm_ap'); // remove any old plain-text
-  }
-  document.getElementById('set-pass').value='';
-  showToast('Credentials updated','ok');
+  if(!u){showToast('Username cannot be empty','error');return;}
+  if(!cur){showToast('Enter your current password to make changes','error');return;}
+  if(p&&p.length<6){showToast('New password must be at least 6 characters','error');return;}
+  try{
+    const r=await apiPut('/auth/credentials',{currentPassword:cur,username:u,newPassword:p});
+    adminUser=r.user; sessionStorage.setItem('sm_tok_user',r.user);
+    document.getElementById('admin-nm').textContent=r.user;
+    document.getElementById('admin-av').textContent=r.user[0].toUpperCase();
+    showToast(p?'Password updated. Any other devices have been signed out.':'Username updated','ok');
+  }catch(e){ showToast(e.message,'error'); }
+  finally{ document.getElementById('set-cur-pass').value=''; document.getElementById('set-pass').value=''; }
 }
 
 const PAGE_TITLES={
@@ -1109,22 +1094,24 @@ function setAction(a){
   document.getElementById('submit-btn').className='sub-btn '+(a==='in'?'sb-in':'sb-out');
   document.getElementById('btn-text').textContent=a==='in'?'\u2714 CHECK IN':'\u21A9 CHECK OUT';
 }
+// As the name is typed, ask the server whether this person already checked
+// in today and switch the form to "Check out" if so.
+let dupTimer, dayStatus={checkedIn:false,checkedOut:false};
 function checkDup(){
-  const val=document.getElementById('emp-name').value.trim().toLowerCase();
-  const warn=document.getElementById('dup-warn');
-  if(!val){warn.style.display='none'; setAction('in'); return;}
-  // resolve name from empId or name
-  const emp=employeeRegistry.find(e=>(e.empId||'').toLowerCase()===val||e.name.toLowerCase()===val);
-  const name=emp?emp.name.toLowerCase():val;
-  const today=new Date().toISOString().split('T')[0];
-  const hasCheckedIn=allRecords.some(r=>r.name.toLowerCase()===name&&r.dateKey===today&&r.type==='Check In');
-  if(hasCheckedIn){
-    warn.style.display='block';
-    setAction('out');
-  } else {
-    warn.style.display='none';
-    setAction('in');
-  }
+  const val=document.getElementById('emp-name').value.trim();
+  clearTimeout(dupTimer);
+  if(!val){ dayStatus={checkedIn:false,checkedOut:false}; showDupState(); return; }
+  dupTimer=setTimeout(async()=>{
+    try{
+      const s=await apiGet('/checkin/status?name='+encodeURIComponent(val)+'&date='+new Date().toISOString().split('T')[0]);
+      if(document.getElementById('emp-name').value.trim()!==val) return;   // still typing
+      dayStatus=s; showDupState();
+    }catch{}
+  },350);
+}
+function showDupState(){
+  document.getElementById('dup-warn').style.display=dayStatus.checkedIn?'block':'none';
+  setAction(dayStatus.checkedIn?'out':'in');
 }
 
 async function submitAttendance(){
@@ -1141,44 +1128,9 @@ async function submitAttendance(){
     return;
   }
 
-  // PIN validation
-  const {ok:pinCheck, emp} = await validatePin(nameOrId, pin);
-  if(pinCheck===null){
-    nameEl.classList.add('err');
-    showToast('Employee not found. Contact your administrator.','error');
-    nameEl.addEventListener('input',()=>nameEl.classList.remove('err'),{once:true});
-    return;
-  }
-  if(pinCheck===false){
-    pinEl.classList.add('err');
-    pinEl.value='';
-    pinEl.focus();
-    showToast('Incorrect PIN. Please try again.','error');
-    pinEl.addEventListener('input',()=>pinEl.classList.remove('err'),{once:true});
-    return;
-  }
-
-  // Use the canonical name from the registry (so records always match)
-  const name = emp ? emp.name : nameOrId;
-
-  const today=new Date().toISOString().split('T')[0];
+  // Name, PIN and check-in/out rules are verified by the server
   const type=currentAction==='in'?'Check In':'Check Out';
-
-  if(currentAction==='in'){
-    const already=allRecords.some(r=>r.name.toLowerCase()===name.toLowerCase()&&r.dateKey===today&&r.type==='Check In');
-    if(already&&dupMode==='block'){showToast(name+' has already checked in today.','warn');return;}
-  }
-  if(currentAction==='out'){
-    const hasCheckedIn=allRecords.some(r=>r.name.toLowerCase()===name.toLowerCase()&&r.dateKey===today&&r.type==='Check In');
-    if(!hasCheckedIn){
-      nameEl.classList.add('err');
-      showToast('No check-in record found for '+name+' today. Cannot check out.','error');
-      nameEl.addEventListener('input',()=>nameEl.classList.remove('err'),{once:true});
-      return;
-    }
-    const alreadyOut=allRecords.some(r=>r.name.toLowerCase()===name.toLowerCase()&&r.dateKey===today&&r.type==='Check Out');
-    if(alreadyOut){showToast(name+' has already checked out today.','warn');return;}
-  }
+  if(currentAction==='in'&&dupMode==='block'&&dayStatus.checkedIn){ showToast('You have already checked in today.','warn'); return; }
 
   const btn=document.getElementById('submit-btn');
   btn.classList.add('loading'); btn.disabled=true;
@@ -1186,18 +1138,24 @@ async function submitAttendance(){
     // Fresh position for the server-side geofence check (cached up to 1 min)
     const pos=await getPosition(60000);
     const now=new Date();
-    const rec={id:Date.now(),name,empId:emp?emp.empId:'',type,
+    const rec={name:nameOrId,pin,type,
       lat:pos.coords.latitude,lng:pos.coords.longitude,
       date:now.toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'}),
       dateKey:now.toISOString().split('T')[0],
       time:now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
       day:now.toLocaleDateString('en-GB',{weekday:'long'}),iso:now.toISOString()};
     rec.status=getStatus(rec);
+    // The server returns the saved record, with the registered name
     const saved=await _addRecord(rec);
-    // server returns the record with its db id; merge it
-    allRecords=[Object.assign(rec,saved),...allRecords];
-    showCheckinSuccess(rec);
-  }catch(err){showToast('Error: '+err.message,'error');}
+    if(!window._isQRSession) allRecords=[saved,...allRecords];
+    pinEl.value='';
+    showCheckinSuccess(saved);
+  }catch(err){
+    const el=err.field==='pin'?pinEl:err.field==='name'?nameEl:null;
+    if(el){ el.classList.add('err'); el.addEventListener('input',()=>el.classList.remove('err'),{once:true}); }
+    if(err.field==='pin'){ pinEl.value=''; pinEl.focus(); }
+    showToast(err.message,'error');
+  }
   finally{btn.classList.remove('loading');btn.disabled=false;}
 }
 function sucIcon(sym){ return `<span class="suc-dot"><svg class="i"><use href="#${sym}"/></svg></span>`; }
@@ -1224,28 +1182,23 @@ function resetCheckinForm(){
 }
 
 // ── REST API HELPERS ──────────────────────────────────────────────
-async function apiGet(path){
+function apiGet(path){ return apiSend('GET',path); }
+function apiPost(path,body){ return apiSend('POST',path,body); }
+function apiPut(path,body){ return apiSend('PUT',path,body); }
+function apiDelete(path){ return apiSend('DELETE',path); }
+async function apiSend(method,path,body){
   let res;
-  try{res=await fetch(BASE_URL+path,{headers:HEADERS});}catch(e){throw new Error('Network error — is the server running?');}
-  if(!res.ok) throw new Error('HTTP '+res.status+' '+res.statusText);
-  return res.json();
-}
-async function apiPost(path,body){
-  let res;
-  try{res=await fetch(BASE_URL+path,{method:'POST',headers:HEADERS,body:JSON.stringify(body)});}catch(e){throw new Error('Network error — is the server running?');}
+  try{res=await fetch(BASE_URL+path,{method,headers:authHeaders(),body:body===undefined?undefined:JSON.stringify(body)});}
+  catch(e){throw new Error('Network error — is the server running?');}
   if(!res.ok){
     // Prefer the server's own {error} message so users see a clear reason
     const t=await res.text().catch(()=>'');
-    let msg='HTTP '+res.status+(t?': '+t:'');
-    try{ msg=JSON.parse(t).error||msg; }catch{}
-    throw new Error(msg);
+    let msg='HTTP '+res.status+(t?': '+t:''), field;
+    try{ const j=JSON.parse(t); msg=j.error||msg; field=j.field; }catch{}
+    if(res.status===401) onSessionRejected();
+    const err=new Error(msg); err.status=res.status; err.field=field;
+    throw err;
   }
-  return res.json();
-}
-async function apiDelete(path){
-  let res;
-  try{res=await fetch(BASE_URL+path,{method:'DELETE',headers:HEADERS});}catch(e){throw new Error('Network error');}
-  if(!res.ok) throw new Error('HTTP '+res.status);
   return res.json();
 }
 
@@ -1284,7 +1237,7 @@ async function loadData(){
     allRecords=allRecords.map(r=>{if(!r.status)r.status=getStatus(r);return r;});
     document.getElementById('last-upd').textContent='Updated '+new Date().toLocaleTimeString('en-GB');
     renderStats(); renderRecentTable(); renderAttTable(); renderCharts();
-  }catch(e){showToast('Load error: '+e.message,'error');}
+  }catch(e){ if(e.status!==401) showToast('Load error: '+e.message,'error'); }   // 401: already sent to login
 }
 async function refreshData(){
   const icon=document.getElementById('refresh-icon');
@@ -1678,9 +1631,6 @@ function showToast(msg,type='ok'){
   toastTimer=setTimeout(()=>t.classList.remove('show'),3500);
 }
 
-// Registry is now persisted in PostgreSQL — no localStorage needed.
-function saveRegistry(){ /* data lives in Postgres — see _addEmployee / _deleteEmployee */ }
-
 function getCompanyInitials(){
   // First 2 letters of each significant word (max 3 words), uppercase
   const skip=new Set(['and','&','of','the','ltd','limited','co','company','inc','plc','llc','ghana','africa']);
@@ -1712,13 +1662,46 @@ function generatePin(){
 function previewPhoto(input){
   const file=input.files[0]; if(!file) return;
   const reader=new FileReader();
-  reader.onload=e=>{
-    pendingPhotoData=e.target.result;
-    const img=document.getElementById('photo-img');
-    const ph=document.getElementById('photo-placeholder');
-    img.src=pendingPhotoData; img.style.display='block'; ph.style.display='none';
-  };
+  reader.onload=e=>{ pendingPhotoData=e.target.result; setPhotoPreview(pendingPhotoData); };
   reader.readAsDataURL(file);
+}
+function setPhotoPreview(src){
+  const img=document.getElementById('photo-img');
+  const ph=document.getElementById('photo-placeholder');
+  img.src=src||''; img.style.display=src?'block':'none'; ph.style.display=src?'none':'flex';
+  document.getElementById('photo-remove').style.display=src?'':'none';
+}
+function removePhoto(){
+  pendingPhotoData='';
+  document.getElementById('emp-photo-input').value='';
+  setPhotoPreview('');
+}
+// The add-employee pop-up doubles as the edit pop-up
+function setEmpModalMode(edit){
+  document.getElementById('emp-modal-title').textContent=edit?'Edit employee':'Register new employee';
+  document.getElementById('emp-modal-sub').textContent=edit?'Update this employee\'s details.':'An access PIN is generated automatically.';
+  document.getElementById('emp-save-btn').textContent=edit?'Save changes':'Save employee';
+  document.getElementById('pin-lbl').textContent=edit?'Access PIN':'Access PIN (auto-generated)';
+  document.getElementById('pin-btn-txt').textContent=edit?'Generate new PIN':'Regenerate PIN';
+  document.getElementById('pin-hint').style.display=edit?'':'none';
+}
+function openEditEmployeeModal(id){
+  if(!requireSession()) return;
+  const emp=employeeRegistry.find(e=>e.id===id);
+  if(!emp){ showToast('Employee not found','error'); return; }
+  editingEmpId=id;
+  setEmpModalMode(true);
+  document.getElementById('new-emp-name').value=emp.name;
+  document.getElementById('new-emp-dept').value=emp.dept||'';
+  document.getElementById('emp-photo-input').value='';
+  pendingPhotoData=emp.photo||'';
+  setPhotoPreview(pendingPhotoData);
+  pendingPin='';
+  const pinEl=document.getElementById('new-emp-pin');
+  pinEl.textContent='Unchanged'; pinEl.style.cssText='letter-spacing:normal;color:var(--mut);font-size:1rem;font-family:inherit';
+  document.getElementById('pin-hint').textContent='The current PIN stays the same unless you generate a new one.';
+  document.getElementById('emp-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('new-emp-name').focus(),80);
 }
 
 function previewEmployeeId(){
@@ -1727,16 +1710,17 @@ function previewEmployeeId(){
 }
 
 function openAddEmployeeModal(){
+  editingEmpId=null;
+  setEmpModalMode(false);
   document.getElementById('new-emp-name').value='';
   document.getElementById('new-emp-dept').value='';
+  document.getElementById('emp-photo-input').value='';
   pendingPhotoData='';
-  const img=document.getElementById('photo-img');
-  const ph=document.getElementById('photo-placeholder');
-  if(img){img.src='';img.style.display='none';}
-  if(ph) ph.style.display='block';
+  setPhotoPreview('');
   pendingPin = generatePin();
   pendingEmpId = generateEmployeeId();
-  document.getElementById('new-emp-pin').textContent = pendingPin;
+  const pinEl=document.getElementById('new-emp-pin');
+  pinEl.textContent = pendingPin; pinEl.style.cssText='color:var(--txt)';
   previewEmployeeId();
   document.getElementById('emp-modal').classList.add('open');
   setTimeout(()=>document.getElementById('new-emp-name').focus(),80);
@@ -1744,10 +1728,37 @@ function openAddEmployeeModal(){
 function closeEmpModal(){ document.getElementById('emp-modal').classList.remove('open'); }
 function regeneratePin(){
   pendingPin = generatePin();
-  document.getElementById('new-emp-pin').textContent = pendingPin;
+  const pinEl=document.getElementById('new-emp-pin');
+  pinEl.textContent = pendingPin; pinEl.style.cssText='color:var(--txt)';
+  if(editingEmpId!=null) document.getElementById('pin-hint').textContent='New PIN — takes effect when you save. The old PIN will stop working.';
+}
+async function saveEditedEmployee(){
+  const emp=employeeRegistry.find(e=>e.id===editingEmpId);
+  if(!emp){ showToast('Employee not found','error'); return; }
+  const name=document.getElementById('new-emp-name').value.replace(/<[^>]*>/g,'').trim();
+  const dept=document.getElementById('new-emp-dept').value.replace(/<[^>]*>/g,'').trim();
+  if(!name){ showToast('Please enter the employee name','error'); return; }
+  if(employeeRegistry.some(e=>e.id!==emp.id&&e.name.toLowerCase()===name.toLowerCase())){
+    showToast('Another employee already has this name','error'); return;
+  }
+  const body={name,dept,photo:pendingPhotoData||''};
+  if(pendingPin){ body.pinHash=await sha256(pendingPin); body.pinRaw=pendingPin; }
+  const oldName=emp.name, newPin=pendingPin;
+  try{
+    const saved=await apiPut('/employees/'+emp.id,body);
+    Object.assign(emp,saved);
+    closeEmpModal();
+    renderRegistry();
+    // A rename also moves past attendance records on the server — reload them
+    if(saved.name!==oldName) await loadData();
+    let msg=saved.name!==oldName?`${oldName} renamed to ${saved.name}. Attendance history moved.`:`${saved.name} updated`;
+    if(newPin) msg+=` New PIN: ${newPin}`;
+    showToast(msg,'ok');
+  }catch(e){ showToast('Save failed: '+e.message,'error'); }
 }
 async function saveNewEmployee(){
   if(!requireSession()) return;
+  if(editingEmpId!=null) return saveEditedEmployee();
   const name = document.getElementById('new-emp-name').value.trim();
   const dept = document.getElementById('new-emp-dept').value.trim();
   if(!name){ showToast('Please enter the employee name','error'); return; }
@@ -1818,33 +1829,13 @@ function renderRegistry(){
       <button class="mini-btn" onclick="copyPin(${e.id})">Copy</button>
     </td>
     <td class="td-mo">${esc(e.added||'—')}</td>
-    <td style="text-align:right"><button class="del-btn" onclick="deleteEmployee(${e.id})" title="Remove employee">&times;</button></td>
+    <td style="text-align:right;white-space:nowrap"><div class="row-acts">
+      <button class="del-btn edit-btn" onclick="openEditEmployeeModal(${e.id})" title="Edit employee" aria-label="Edit ${esc(e.name)}"><svg class="i i-sm"><use href="#i-pencil"/></svg></button>
+      <button class="del-btn" onclick="deleteEmployee(${e.id})" title="Delete employee" aria-label="Delete ${esc(e.name)}"><svg class="i i-sm"><use href="#i-trash"/></svg></button>
+    </div></td>
   </tr>`).join('');
 }
 
-// ── PIN VALIDATION ────────────────────────────────────────────────
-async function validatePin(nameOrId, pin){
-  if(!employeeRegistry.length) return {ok:true, emp:null};
-  const query=nameOrId.trim().toLowerCase();
-  const emp = employeeRegistry.find(e=>
-    (e.empId||'').toLowerCase()===query || e.name.toLowerCase()===query
-  );
-  if(!emp) return {ok:null, emp:null};
-  if(emp.pinHash){
-    const inputHash=await sha256(pin.trim());
-    if(inputHash!==emp.pinHash) return {ok:false, emp};
-  } else if(emp.pin){
-    // Legacy plain PIN — migrate to hash silently
-    if(emp.pin!==pin.trim()) return {ok:false, emp};
-    emp.pinHash=await sha256(emp.pin);
-    emp.pinRaw=emp.pin;
-    delete emp.pin;
-    saveRegistry();
-  } else {
-    return {ok:false, emp};
-  }
-  return {ok:true, emp};
-}
 
 // ── GPS HELPERS ────────────────────────────────────────────────────
 function haversineDistance(lat1,lng1,lat2,lng2){
@@ -1990,15 +1981,19 @@ document.addEventListener('DOMContentLoaded',()=>{
       document.getElementById('suc-mt').textContent='This device has already submitted attendance. Please close this page.';
     }
   } else if(sessionValid()){
-    // Resume the admin session after a page refresh
-    const u=sessionStorage.getItem('sm_tok_user')||adminUser;
-    document.getElementById('login-screen').style.display='none';
-    document.getElementById('app').classList.add('visible');
-    document.getElementById('admin-nm').textContent=u;
-    document.getElementById('admin-av').textContent=u[0].toUpperCase();
-    initApp();
-    const last=sessionStorage.getItem('sm_page');
-    if(last && PAGE_TITLES[last]) showPage(last);
+    // Resume the admin session after a page refresh, if the server still accepts it
+    apiGet('/auth/me').then(r=>{
+      adminUser=r.user; sessionStorage.setItem('sm_tok_user',r.user);
+      showApp(r.user);
+      initApp();
+      const last=sessionStorage.getItem('sm_page');
+      if(last && PAGE_TITLES[last]) showPage(last);
+    }).catch(e=>{
+      if(e.status===401) clearSession();
+      document.documentElement.classList.remove('resuming');
+    });
+  } else {
+    document.documentElement.classList.remove('resuming');
   }
 });
 </script>
